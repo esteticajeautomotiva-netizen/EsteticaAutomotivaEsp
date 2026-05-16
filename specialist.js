@@ -44,8 +44,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     currentSpecialist = await checkSession('specialist');
     await Promise.all([loadSpecialistProfile(), loadCachedMensagens()]);
-    await loadGanhos();
-    await loadMyAppointments();
+    // Busca appointments UMA vez e alimenta ganhos + tabela
+    await loadAllSpecialistData();
     setupNav();
   } catch (e) {
     console.error('Specialist init:', e);
@@ -255,6 +255,21 @@ async function loadGanhos() {
   }
 }
 
+// Carrega appointments UMA vez e alimenta ganhos + tabela (evita query dupla)
+async function loadAllSpecialistData() {
+  if (!specialistData) return;
+  try {
+    const snap = await db.collection('appointments')
+      .where('specialistId', '==', specialistData.id)
+      .get();
+    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderGanhos(_specAllApts, _specPeriod);
+    await renderAppointmentsTable(_specAllApts, 'todos');
+  } catch(e) {
+    console.error('Erro ao carregar dados do especialista:', e);
+  }
+}
+
 function renderProfile() {
   const sp = specialistData;
   const fotoEl = document.getElementById('prof-foto');
@@ -294,18 +309,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ---- Meus agendamentos ----
 async function loadMyAppointments(filter = 'todos') {
-  const tbody = document.getElementById('my-appointments-tbody');
-  if (!tbody || !specialistData) return;
-
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px"><span class="spinner"></span></td></tr>';
-
+  if (!specialistData) return;
   try {
-    // Busca só por specialistId (sem orderBy = sem índice composto necessário)
     const snap = await db.collection('appointments')
       .where('specialistId', '==', specialistData.id)
       .get();
+    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderGanhos(_specAllApts, _specPeriod);
+    await renderAppointmentsTable(_specAllApts, filter);
+  } catch(e) {
+    console.error('Erro ao recarregar:', e);
+  }
+}
 
-    let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+async function renderAppointmentsTable(allApts, filter = 'todos') {
+  const tbody = document.getElementById('my-appointments-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px"><span class="spinner"></span></td></tr>';
+
+  try {
+    let list = [...allApts];
 
     // Ordena data desc → hora desc em JS
     list.sort((a, b) => {
