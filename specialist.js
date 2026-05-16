@@ -5,6 +5,17 @@
 let currentSpecialist = null;
 let specialistData    = null;
 
+// Retorna a data de ganho: para concluídos usa a data de conclusão (updatedAt), não a data agendada
+function getEarningsDate(a) {
+  if (a.status === 'concluido' && a.updatedAt) {
+    try {
+      const d = a.updatedAt.toDate ? a.updatedAt.toDate() : new Date(a.updatedAt);
+      return d.toISOString().split('T')[0];
+    } catch(e) {}
+  }
+  return a.data;
+}
+
 function toast(msg, type = 'info') {
   const icons = { success: '✅', error: '❌', info: 'ℹ️' };
   const el = document.createElement('div');
@@ -28,25 +39,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ---- Perfil ----
 async function loadSpecialistProfile() {
-  const nomeEl = document.getElementById('prof-nome');
-  try {
-    if (!currentSpecialist.specialistId) {
-      console.error('[ESP] specialistId ausente no usuário:', currentSpecialist);
-      if (nomeEl) nomeEl.textContent = 'Erro: perfil não vinculado. Fale com o ADM.';
-      return;
-    }
-    const doc = await db.collection('specialists').doc(currentSpecialist.specialistId).get();
-    if (!doc.exists) {
-      console.error('[ESP] Doc do especialista não encontrado. ID:', currentSpecialist.specialistId);
-      if (nomeEl) nomeEl.textContent = 'Erro: especialista não encontrado no sistema.';
-      return;
-    }
-    specialistData = { id: doc.id, ...doc.data() };
-    renderProfile();
-  } catch (e) {
-    console.error('[ESP] Erro ao carregar perfil:', e);
-    if (nomeEl) nomeEl.textContent = 'Erro: ' + e.message;
-  }
+  if (!currentSpecialist.specialistId) return;
+  const doc = await db.collection('specialists').doc(currentSpecialist.specialistId).get();
+  if (!doc.exists) return;
+  specialistData = { id: doc.id, ...doc.data() };
+  renderProfile();
 }
 
 
@@ -108,7 +105,7 @@ function renderGanhos(all, period) {
   const todosConc = all.filter(a => a.status === 'concluido');
 
   // Filtra pelo período selecionado (para o hero)
-  const concluidos = todosConc.filter(a => a.data >= ini && a.data <= fim);
+  const concluidos = todosConc.filter(a => { const d = getEarningsDate(a); return d >= ini && d <= fim; });
 
   const totalVal = concluidos.reduce((s, a) => s + (Number(a.preco) || 0), 0);
   valorEl.textContent = 'R$ ' + totalVal.toFixed(2);
@@ -129,7 +126,7 @@ function renderGanhos(all, period) {
     linhas = Array.from({ length: 7 }, (_, i) => {
       const d   = new Date(semIni); d.setDate(semIni.getDate() + i);
       const iso = d.toISOString().split('T')[0];
-      const apts = todosConc.filter(a => a.data === iso);  // usa todosConc (sem filtro de período)
+      const apts = todosConc.filter(a => getEarningsDate(a) === iso);
       const val  = apts.reduce((s, a) => s + (Number(a.preco) || 0), 0);
       return { label: dias[d.getDay()] + ' ' + d.getDate(), val, qtd: apts.length, today: iso === todayIso };
     });
@@ -145,7 +142,7 @@ function renderGanhos(all, period) {
 
     // Usa concluidos filtrados pelo mês
     concluidos.forEach(a => {
-      const day = parseInt(a.data.slice(8, 10));
+      const day = parseInt(getEarningsDate(a).slice(8, 10));
       const wk  = Math.ceil(day / 7);
       const key = `Sem ${wk}`;
       if (!weeks[key]) weeks[key] = { val: 0, qtd: 0 };
@@ -172,9 +169,9 @@ function renderGanhos(all, period) {
     // Usa todos os concluídos do ano atual
     const anoAtual = String(new Date().getFullYear());
     todosConc
-      .filter(a => a.data.startsWith(anoAtual))
+      .filter(a => getEarningsDate(a).startsWith(anoAtual))
       .forEach(a => {
-        const m = a.data.slice(5, 7);
+        const m = getEarningsDate(a).slice(5, 7);
         if (!byMes[m]) byMes[m] = { val: 0, qtd: 0 };
         byMes[m].val += Number(a.preco) || 0;
         byMes[m].qtd++;
@@ -194,7 +191,7 @@ function renderGanhos(all, period) {
     // Total: agrupa por ano
     const byAno = {};
     todosConc.forEach(a => {
-      const ano = a.data ? a.data.slice(0, 4) : 'N/A';
+      const d = getEarningsDate(a); const ano = d ? d.slice(0, 4) : 'N/A';
       if (!byAno[ano]) byAno[ano] = { val: 0, qtd: 0 };
       byAno[ano].val += Number(a.preco) || 0;
       byAno[ano].qtd++;
