@@ -358,11 +358,21 @@ async function specUpdateStatus(id, status) {
       const phone = apt.clienteFone.replace(/\D/g, '');
       const phoneWA = phone.startsWith('55') ? phone : '55' + phone;
 
+      // Busca mensagem personalizada do Firestore (configurada pelo ADM)
+      const MSG_DEFAULTS = {
+        confirmado: `Olá! A J&E ESTÉTICA agradece a preferência. ✅ Seu agendamento foi *confirmado*!\n\nCompareça com até *10 min de antecedência* para vistoria junto ao especialista.\nTolerância de atrasos de até 15 min.`,
+        concluido:  `Olá! A J&E ESTÉTICA agradece a preferência. 🎉 O serviço em seu veículo foi *concluído*!\n\nObrigado e volte sempre! 🚗✨`
+      };
+
       let msg = '';
-      if (status === 'confirmado') {
-        msg = `Olá! A J&E ESTÉTICA agradece a preferência. ✅ Seu agendamento foi *confirmado*!\n\nCompareça com até *10 min de antecedência* para vistoria junto ao especialista.\nTolerância de atrasos de até 15 min.`;
-      } else if (status === 'concluido') {
-        msg = `Olá! A J&E ESTÉTICA agradece a preferência. 🎉 O serviço em seu veículo foi *concluído*!\n\nObrigado e volte sempre! 🚗✨`;
+      try {
+        const msgDoc = await db.collection('settings').doc('mensagens').get();
+        const msgs = msgDoc.exists ? msgDoc.data() : {};
+        msg = (status === 'confirmado')
+          ? (msgs.confirmado || MSG_DEFAULTS.confirmado)
+          : (msgs.concluido  || MSG_DEFAULTS.concluido);
+      } catch(e) {
+        msg = MSG_DEFAULTS[status] || '';
       }
 
       if (msg) {
