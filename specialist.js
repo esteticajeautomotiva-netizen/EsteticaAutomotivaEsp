@@ -317,9 +317,13 @@ async function loadMyAppointments(filter = 'todos') {
     const today = new Date().toISOString().split('T')[0];
 
     // Stats sempre com total real (antes do filtro de aba)
+    const totalPendentes = list.filter(a => a.status === 'pendente').length;
     setVal('spec-total',    list.length);
     setVal('spec-hoje',     list.filter(a => a.data === today).length);
-    setVal('spec-pendentes',list.filter(a => a.status === 'pendente').length);
+    setVal('spec-pendentes', totalPendentes);
+
+    // Badge no ícone do app (ponto/número vermelho)
+    atualizarBadge(totalPendentes);
 
     // Aplica filtro de aba
     const filtered = filter === 'todos' ? list : list.filter(a => a.status === filter);
@@ -379,6 +383,16 @@ async function specUpdateStatus(id, status, phone) {
     await loadMyAppointments(activeFilter);
   } catch(e) {
     toast('Erro ao atualizar: ' + e.message, 'error');
+  }
+}
+
+// ---- Badge de notificação no ícone do app ----
+function atualizarBadge(count) {
+  if (!('setAppBadge' in navigator)) return;
+  if (count > 0) {
+    navigator.setAppBadge(count).catch(() => {});
+  } else {
+    navigator.clearAppBadge().catch(() => {});
   }
 }
 
