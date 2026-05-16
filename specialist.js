@@ -28,11 +28,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ---- Perfil ----
 async function loadSpecialistProfile() {
-  if (!currentSpecialist.specialistId) return;
-  const doc = await db.collection('specialists').doc(currentSpecialist.specialistId).get();
-  if (!doc.exists) return;
-  specialistData = { id: doc.id, ...doc.data() };
-  renderProfile();
+  const nomeEl = document.getElementById('prof-nome');
+  try {
+    if (!currentSpecialist.specialistId) {
+      console.error('[ESP] specialistId ausente no usuário:', currentSpecialist);
+      if (nomeEl) nomeEl.textContent = 'Erro: perfil não vinculado. Fale com o ADM.';
+      return;
+    }
+    const doc = await db.collection('specialists').doc(currentSpecialist.specialistId).get();
+    if (!doc.exists) {
+      console.error('[ESP] Doc do especialista não encontrado. ID:', currentSpecialist.specialistId);
+      if (nomeEl) nomeEl.textContent = 'Erro: especialista não encontrado no sistema.';
+      return;
+    }
+    specialistData = { id: doc.id, ...doc.data() };
+    renderProfile();
+  } catch (e) {
+    console.error('[ESP] Erro ao carregar perfil:', e);
+    if (nomeEl) nomeEl.textContent = 'Erro: ' + e.message;
+  }
 }
 
 
