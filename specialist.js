@@ -342,11 +342,35 @@ async function loadMyAppointments(filter = 'todos') {
 
 async function specUpdateStatus(id, status) {
   try {
+    // Busca dados do agendamento antes de atualizar (para pegar telefone do cliente)
+    const aptDoc = await db.collection('appointments').doc(id).get();
+    const apt = aptDoc.data();
+
     await db.collection('appointments').doc(id).update({
       status,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
+
     toast(status === 'confirmado' ? 'Agendamento confirmado! ✔' : 'Serviço concluído! ✅', 'success');
+
+    // Enviar WhatsApp para o cliente
+    if (apt?.clienteFone) {
+      const phone = apt.clienteFone.replace(/\D/g, '');
+      const phoneWA = phone.startsWith('55') ? phone : '55' + phone;
+
+      let msg = '';
+      if (status === 'confirmado') {
+        msg = `Olá! A J&E ESTÉTICA agradece a preferência. ✅ Seu agendamento foi *confirmado*!\n\nCompareça com até *10 min de antecedência* para vistoria junto ao especialista.\nTolerância de atrasos de até 15 min.`;
+      } else if (status === 'concluido') {
+        msg = `Olá! A J&E ESTÉTICA agradece a preferência. 🎉 O serviço em seu veículo foi *concluído*!\n\nObrigado e volte sempre! 🚗✨`;
+      }
+
+      if (msg) {
+        const url = `https://wa.me/${phoneWA}?text=${encodeURIComponent(msg)}`;
+        window.open(url, '_blank');
+      }
+    }
+
     const activeFilter = document.querySelector('.filter-btn.active')?.getAttribute('data-filter') || 'todos';
     await loadMyAppointments(activeFilter);
   } catch(e) {
