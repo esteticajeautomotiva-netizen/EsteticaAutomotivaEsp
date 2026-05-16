@@ -4,6 +4,21 @@
 
 let currentSpecialist = null;
 let specialistData    = null;
+let cachedMensagens   = null;  // mensagens pré-carregadas do Firestore
+
+const MSG_DEFAULTS = {
+  confirmado: `Olá! A J&E ESTÉTICA agradece a preferência. ✅ Seu agendamento foi *confirmado*!\n\nCompareça com até *10 min de antecedência* para vistoria junto ao especialista.\nTolerância de atrasos de até 15 min.`,
+  concluido:  `Olá! A J&E ESTÉTICA agradece a preferência. 🎉 O serviço em seu veículo foi *concluído*!\n\nObrigado e volte sempre! 🚗✨`
+};
+
+async function loadCachedMensagens() {
+  try {
+    const doc = await db.collection('settings').doc('mensagens').get();
+    cachedMensagens = doc.exists ? doc.data() : {};
+  } catch(e) {
+    cachedMensagens = {};
+  }
+}
 
 // Retorna a data de ganho: para concluídos usa a data de conclusão (updatedAt), não a data agendada
 function getEarningsDate(a) {
@@ -28,7 +43,7 @@ function toast(msg, type = 'info') {
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     currentSpecialist = await checkSession('specialist');
-    await loadSpecialistProfile();
+    await Promise.all([loadSpecialistProfile(), loadCachedMensagens()]);
     await loadGanhos();
     await loadMyAppointments();
     setupNav();
@@ -317,10 +332,10 @@ async function loadMyAppointments(filter = 'todos') {
     tbody.innerHTML = filtered.map(a => {
       const acoes = [
         a.status === 'pendente'
-          ? `<button class="btn btn-primary btn-sm" onclick="specUpdateStatus('${a.id}','confirmado')">✔ Confirmar</button>`
+          ? `<button class="btn btn-primary btn-sm" onclick="specUpdateStatus('${a.id}','confirmado','${a.clienteFone}')">✔ Confirmar</button>`
           : '',
         a.status === 'confirmado'
-          ? `<button class="btn btn-success btn-sm" onclick="specUpdateStatus('${a.id}','concluido')">✅ Concluir</button>`
+          ? `<button class="btn btn-success btn-sm" onclick="specUpdateStatus('${a.id}','concluido','${a.clienteFone}')">✅ Concluir</button>`
           : '',
       ].filter(Boolean).join('');
 
@@ -340,47 +355,26 @@ async function loadMyAppointments(filter = 'todos') {
   }
 }
 
-async function specUpdateStatus(id, status) {
-  try {
-    // Busca dados do agendamento antes de atualizar (para pegar telefone do cliente)
-    const aptDoc = await db.collection('appointments').doc(id).get();
-    const apt = aptDoc.data();
+async function specUpdateStatus(id, status, phone) {
+  // ⚡ Abre WhatsApp IMEDIATAMENTE (síncrono) antes de qualquer await
+  // Browsers mobile bloqueiam window.open() após operações assíncronas
+  if (phone && (status === 'confirmado' || status === 'concluido')) {
+    const phoneNum = phone.replace(/\D/g, '');
+    const phoneWA  = phoneNum.startsWith('55') ? phoneNum : '55' + phoneNum;
+    const msgs     = cachedMensagens || {};
+    const msg      = (status === 'confirmado')
+      ? (msgs.confirmado || MSG_DEFAULTS.confirmado)
+      : (msgs.concluido  || MSG_DEFAULTS.concluido);
+    window.open(`https://wa.me/${phoneWA}?text=${encodeURIComponent(msg)}`, '_blank');
+  }
 
+  // Atualiza status no Firestore (async, depois do WhatsApp)
+  try {
     await db.collection('appointments').doc(id).update({
       status,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-
     toast(status === 'confirmado' ? 'Agendamento confirmado! ✔' : 'Serviço concluído! ✅', 'success');
-
-    // Enviar WhatsApp para o cliente
-    if (apt?.clienteFone) {
-      const phone = apt.clienteFone.replace(/\D/g, '');
-      const phoneWA = phone.startsWith('55') ? phone : '55' + phone;
-
-      // Busca mensagem personalizada do Firestore (configurada pelo ADM)
-      const MSG_DEFAULTS = {
-        confirmado: `Olá! A J&E ESTÉTICA agradece a preferência. ✅ Seu agendamento foi *confirmado*!\n\nCompareça com até *10 min de antecedência* para vistoria junto ao especialista.\nTolerância de atrasos de até 15 min.`,
-        concluido:  `Olá! A J&E ESTÉTICA agradece a preferência. 🎉 O serviço em seu veículo foi *concluído*!\n\nObrigado e volte sempre! 🚗✨`
-      };
-
-      let msg = '';
-      try {
-        const msgDoc = await db.collection('settings').doc('mensagens').get();
-        const msgs = msgDoc.exists ? msgDoc.data() : {};
-        msg = (status === 'confirmado')
-          ? (msgs.confirmado || MSG_DEFAULTS.confirmado)
-          : (msgs.concluido  || MSG_DEFAULTS.concluido);
-      } catch(e) {
-        msg = MSG_DEFAULTS[status] || '';
-      }
-
-      if (msg) {
-        const url = `https://wa.me/${phoneWA}?text=${encodeURIComponent(msg)}`;
-        window.open(url, '_blank');
-      }
-    }
-
     const activeFilter = document.querySelector('.filter-btn.active')?.getAttribute('data-filter') || 'todos';
     await loadMyAppointments(activeFilter);
   } catch(e) {
