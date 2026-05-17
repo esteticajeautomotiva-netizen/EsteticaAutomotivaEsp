@@ -1,475 +1,200 @@
-// ============================================================
-// SPECIALIST.JS — Lógica da área do especialista
-// ============================================================
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>J&E Estética Automotiva — Especialista</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#D4AF37">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="vars.css">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+<div id="toast-container"></div>
+<button class="menu-toggle" id="menu-toggle">☰</button>
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-let currentSpecialist = null;
-let specialistData    = null;
-let cachedMensagens   = null;  // mensagens pré-carregadas do Firestore
+<!-- ============================================================ -->
+<!--  SIDEBAR                                                     -->
+<!-- ============================================================ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon" style="border-radius:50%;overflow:hidden;padding:0;background:none"><img src="https://res.cloudinary.com/dmqtygmro/image/upload/v1778716782/WhatsApp_Image_2026-05-07_at_22.51.51_fac8lq.jpg" alt="J&E" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:50%"></div>
+    <div class="logo-text">J&amp;E Estética<small>Especialista</small></div>
+  </div>
 
-const MSG_DEFAULTS = {
-  confirmado: `Olá! A J&E ESTÉTICA agradece a preferência. ✅ Seu agendamento foi *confirmado*!\n\nCompareça com até *10 min de antecedência* para vistoria junto ao especialista.\nTolerância de atrasos de até 15 min.`,
-  concluido:  `Olá! A J&E ESTÉTICA agradece a preferência. 🎉 O serviço em seu veículo foi *concluído*!\n\nObrigado e volte sempre! 🚗✨`
-};
+  <nav class="sidebar-nav">
+    <a class="sidebar-item active" data-page="perfil">
+      <span class="icon">👤</span> Meu Perfil
+    </a>
+    <a class="sidebar-item" data-page="agendamentos">
+      <span class="icon">📅</span> Meus Agendamentos
+    </a>
+  </nav>
 
-async function loadCachedMensagens() {
-  try {
-    const doc = await db.collection('settings').doc('mensagens').get();
-    cachedMensagens = doc.exists ? doc.data() : {};
-  } catch(e) {
-    cachedMensagens = {};
-  }
-}
+  <div class="sidebar-footer">
+    <div class="sidebar-user">
+      <img class="avatar avatar-sm" id="nav-spec-foto"
+           src="https://ui-avatars.com/api/?name=E&background=1A1F2E&color=00D4FF&bold=true" alt="">
+      <div class="info">
+        <div class="name" id="nav-spec-nome">Especialista</div>
+        <div class="role" style="color:var(--gold)">Especialista</div>
+      </div>
+    </div>
+    <button class="sidebar-item" id="btn-logout-spec" style="color:var(--danger);margin-top:8px">
+      <span class="icon">🚪</span> Sair
+    </button>
+  </div>
+</aside>
 
-// Retorna a data de ganho: para concluídos usa a data de conclusão (updatedAt), não a data agendada
-function getEarningsDate(a) {
-  if (a.status === 'concluido' && a.updatedAt) {
-    try {
-      const d = a.updatedAt.toDate ? a.updatedAt.toDate() : new Date(a.updatedAt);
-      return d.toISOString().split('T')[0];
-    } catch(e) {}
-  }
-  return a.data;
-}
+<!-- ============================================================ -->
+<!--  MAIN CONTENT                                                -->
+<!-- ============================================================ -->
+<main class="main-content">
 
-function toast(msg, type = 'info') {
-  const icons = { success: '✅', error: '❌', info: 'ℹ️' };
-  const el = document.createElement('div');
-  el.className = `toast toast-${type}`;
-  el.innerHTML = `<span>${icons[type]}</span><span>${msg}</span>`;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3200);
-}
+  <!-- ---- PERFIL ---- -->
+  <div id="page-perfil" class="page active">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Meu Perfil</div>
+        <div class="page-subtitle">Gerencie suas informações</div>
+      </div>
+    </div>
 
-document.addEventListener('DOMContentLoaded', async () => {
-  try {
-    currentSpecialist = await checkSession('specialist');
-    pedirPermissaoNotificacao(); // solicita permissão logo na abertura
-    await Promise.all([loadSpecialistProfile(), loadCachedMensagens()]);
-    // Busca appointments UMA vez e alimenta ganhos + tabela
-    await loadAllSpecialistData();
-    setupNav();
-  } catch (e) {
-    console.error('Specialist init:', e);
-  }
-});
+    <div class="specialist-profile-hero">
+      <!-- Foto -->
+      <div style="position:relative;flex-shrink:0">
+        <img id="prof-foto" class="avatar avatar-xl" alt="Foto de perfil"
+             src="https://ui-avatars.com/api/?name=E&background=1A1F2E&color=00D4FF&bold=true&size=128">
+        <label id="btn-change-foto" style="position:absolute;bottom:0;right:0;
+              background:var(--cyan);color:#000;border:2px solid var(--bg);
+              width:34px;height:34px;border-radius:50%;
+              display:flex;align-items:center;justify-content:center;
+              font-size:16px;cursor:pointer;font-weight:700"
+              title="Alterar foto">
+          📷
+          <input type="file" id="foto-input" accept="image/*" capture="user" style="display:none">
+        </label>
+      </div>
 
-// ---- Perfil ----
-async function loadSpecialistProfile() {
-  if (!currentSpecialist.specialistId) return;
-  const doc = await db.collection('specialists').doc(currentSpecialist.specialistId).get();
-  if (!doc.exists) return;
-  specialistData = { id: doc.id, ...doc.data() };
-  renderProfile();
-}
+      <div class="profile-info">
+        <div class="name" id="prof-nome">Carregando...</div>
+        <div class="specialty" id="prof-esp">—</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <span style="font-size:13px;color:var(--text-2)">📱 <span id="prof-fone">—</span></span>
+        </div>
+      </div>
+    </div>
 
+    <!-- Stats rápidas -->
+    <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card cyan">
+        <div class="stat-icon">📅</div>
+        <div class="stat-value" id="spec-hoje">—</div>
+        <div class="stat-label">Hoje</div>
+      </div>
+      <div class="stat-card gold">
+        <div class="stat-icon">⏳</div>
+        <div class="stat-value" id="spec-pendentes">—</div>
+        <div class="stat-label">Pendentes</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-icon">📋</div>
+        <div class="stat-value" id="spec-total">—</div>
+        <div class="stat-label">Total</div>
+      </div>
+    </div>
 
+    <!-- ===== MEUS GANHOS ===== -->
+    <div class="card" style="margin-top:16px">
 
-// ============================================================
-// MEUS GANHOS
-// ============================================================
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+        <h3 style="font-family:var(--font-display);font-size:18px;font-weight:800;text-transform:uppercase">
+          💰 Meus Ganhos
+        </h3>
+        <div style="display:flex;gap:6px;flex-wrap:wrap" id="ganhos-period-btns">
+          <button class="filter-btn active" data-gperiod="semana"  onclick="changeGanhosPeriod(this,'semana')">Semana</button>
+          <button class="filter-btn"        data-gperiod="mes"     onclick="changeGanhosPeriod(this,'mes')">Mês</button>
+          <button class="filter-btn"        data-gperiod="ano"     onclick="changeGanhosPeriod(this,'ano')">Ano</button>
+          <button class="filter-btn"        data-gperiod="total"   onclick="changeGanhosPeriod(this,'total')">Total</button>
+        </div>
+      </div>
 
-let _specAllApts = [];   // cache de todos os agendamentos do especialista
-let _specPeriod  = 'semana';
+      <!-- Destaque principal -->
+      <div class="ganhos-hero">
+        <div class="ganhos-hero-label" id="ganhos-label">Esta Semana</div>
+        <div class="ganhos-hero-valor" id="ganhos-valor">—</div>
+        <div class="ganhos-hero-sub"   id="ganhos-sub">— serviços concluídos</div>
+      </div>
 
-function changeGanhosPeriod(btn, period) {
-  _specPeriod = period;
-  document.querySelectorAll('#ganhos-period-btns .filter-btn')
-    .forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  renderGanhos(_specAllApts, period);
-}
+      <!-- Grade de detalhe: semana → dias | mês → semanas | ano → meses -->
+      <div class="ganhos-detalhe" id="ganhos-detalhe">
+        <div style="text-align:center;padding:20px;color:var(--text-2)"><span class="spinner"></span></div>
+      </div>
+    </div>
 
-function getSpecPeriodRange(period) {
-  const now   = new Date();
-  const today = now.toISOString().split('T')[0];
+    <div class="card" style="margin-top:8px">
+      <h3 style="font-family:var(--font-display);font-size:16px;font-weight:800;text-transform:uppercase;margin-bottom:12px">
+        💡 Como alterar minha foto?
+      </h3>
+      <p style="color:var(--text-2);font-size:13px;line-height:1.7">
+        Clique no ícone 📷 sobre sua foto de perfil.<br>
+        Você pode tirar uma foto agora ou escolher uma da sua galeria.<br>
+        A foto será exibida para os clientes ao agendar.
+      </p>
+    </div>
+  </div>
 
-  if (period === 'total') return { ini: '0000-00-00', fim: '9999-99-99' };
+  <!-- ---- AGENDAMENTOS ---- -->
+  <div id="page-agendamentos" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Meus Agendamentos</div>
+        <div class="page-subtitle">Seus próximos atendimentos</div>
+      </div>
+    </div>
 
-  if (period === 'semana') {
-    const dow = now.getDay();
-    const ini = new Date(now); ini.setDate(now.getDate() - dow);
-    const fim = new Date(now); fim.setDate(now.getDate() + (6 - dow));
-    return { ini: ini.toISOString().split('T')[0], fim: fim.toISOString().split('T')[0] };
-  }
+    <div class="appointments-filters">
+      <button class="filter-btn active" data-filter="todos">Todos</button>
+      <button class="filter-btn" data-filter="pendente">Pendentes</button>
+      <button class="filter-btn" data-filter="confirmado">Confirmados</button>
+      <button class="filter-btn" data-filter="concluido">Concluídos</button>
+    </div>
 
-  if (period === 'mes') {
-    const ini = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
-    return { ini, fim: today };
-  }
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Data / Hora</th>
+            <th>Cliente</th>
+            <th>Telefone</th>
+            <th>Serviço</th>
+            <th>Status</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="my-appointments-tbody">
+          <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-2)">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 
-  if (period === 'ano') {
-    const ini = `${now.getFullYear()}-01-01`;
-    return { ini, fim: today };
-  }
+</main>
 
-  return { ini: '0000-00-00', fim: '9999-99-99' };
-}
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 
-function renderGanhos(all, period) {
-  const valorEl   = document.getElementById('ganhos-valor');
-  const subEl     = document.getElementById('ganhos-sub');
-  const labelEl   = document.getElementById('ganhos-label');
-  const detalheEl = document.getElementById('ganhos-detalhe');
-  if (!valorEl) return;
+<script src="firebase-config.js"></script>
+<script src="cloudinary.js"></script>
+<script src="auth.js"></script>
+<script src="specialist.js"></script>
 
-  const labels = { semana:'Esta Semana', mes:'Este Mês', ano:'Este Ano', total:'Total Geral' };
-  if (labelEl) labelEl.textContent = labels[period] || '';
-
-  const { ini, fim } = getSpecPeriodRange(period);
-
-  // Filtra todos os agendamentos concluídos do especialista (sem restrição de período)
-  const todosConc = all.filter(a => a.status === 'concluido');
-
-  // Filtra pelo período selecionado (para o hero)
-  const concluidos = todosConc.filter(a => { const d = getEarningsDate(a); return d >= ini && d <= fim; });
-
-  const totalVal = concluidos.reduce((s, a) => s + (Number(a.preco) || 0), 0);
-  valorEl.textContent = 'R$ ' + totalVal.toFixed(2);
-  subEl.textContent   = `${concluidos.length} serviço${concluidos.length !== 1 ? 's' : ''} concluído${concluidos.length !== 1 ? 's' : ''}`;
-
-  if (!detalheEl) return;
-
-  // ---- Sempre monta as barras do período, independente de ter dados ----
-  let linhas = [];
-
-  if (period === 'semana') {
-    const dias   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-    const now    = new Date();
-    const dow    = now.getDay();
-    const semIni = new Date(now); semIni.setDate(now.getDate() - dow);
-    const todayIso = now.toISOString().split('T')[0];
-
-    linhas = Array.from({ length: 7 }, (_, i) => {
-      const d   = new Date(semIni); d.setDate(semIni.getDate() + i);
-      const iso = d.toISOString().split('T')[0];
-      const apts = todosConc.filter(a => getEarningsDate(a) === iso);
-      const val  = apts.reduce((s, a) => s + (Number(a.preco) || 0), 0);
-      return { label: dias[d.getDay()] + ' ' + d.getDate(), val, qtd: apts.length, today: iso === todayIso };
-    });
-
-  } else if (period === 'mes') {
-    const now = new Date();
-    const ano = now.getFullYear();
-    const mes = now.getMonth() + 1;
-    // Quantas semanas tem o mês atual
-    const diasNoMes = new Date(ano, mes, 0).getDate();
-    const numSemanas = Math.ceil(diasNoMes / 7);
-    const weeks = {};
-
-    // Usa concluidos filtrados pelo mês
-    concluidos.forEach(a => {
-      const day = parseInt(getEarningsDate(a).slice(8, 10));
-      const wk  = Math.ceil(day / 7);
-      const key = `Sem ${wk}`;
-      if (!weeks[key]) weeks[key] = { val: 0, qtd: 0 };
-      weeks[key].val += Number(a.preco) || 0;
-      weeks[key].qtd++;
-    });
-
-    linhas = Array.from({ length: numSemanas }, (_, i) => {
-      const key = `Sem ${i+1}`;
-      const dIni = i * 7 + 1;
-      const dFim = Math.min((i+1) * 7, diasNoMes);
-      return {
-        label: `${dIni}–${dFim}`,
-        val:   weeks[key]?.val || 0,
-        qtd:   weeks[key]?.qtd || 0
-      };
-    });
-
-  } else if (period === 'ano') {
-    const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-    const curMes = new Date().getMonth() + 1;
-    const byMes  = {};
-
-    // Usa todos os concluídos do ano atual
-    const anoAtual = String(new Date().getFullYear());
-    todosConc
-      .filter(a => getEarningsDate(a).startsWith(anoAtual))
-      .forEach(a => {
-        const m = getEarningsDate(a).slice(5, 7);
-        if (!byMes[m]) byMes[m] = { val: 0, qtd: 0 };
-        byMes[m].val += Number(a.preco) || 0;
-        byMes[m].qtd++;
-      });
-
-    linhas = Array.from({ length: 12 }, (_, i) => {
-      const m = String(i + 1).padStart(2, '0');
-      return {
-        label:  meses[i],
-        val:    byMes[m]?.val || 0,
-        qtd:    byMes[m]?.qtd || 0,
-        future: (i + 1) > curMes
-      };
-    });
-
-  } else {
-    // Total: agrupa por ano
-    const byAno = {};
-    todosConc.forEach(a => {
-      const d = getEarningsDate(a); const ano = d ? d.slice(0, 4) : 'N/A';
-      if (!byAno[ano]) byAno[ano] = { val: 0, qtd: 0 };
-      byAno[ano].val += Number(a.preco) || 0;
-      byAno[ano].qtd++;
-    });
-
-    linhas = Object.entries(byAno)
-      .sort()
-      .map(([ano, { val, qtd }]) => ({ label: ano, val, qtd }));
-
-    // Se nunca houve nenhum concluído, mostra mensagem
-    if (!linhas.length) {
-      detalheEl.innerHTML = '<p style="color:var(--text-2);font-size:13px;text-align:center;padding:20px">Nenhum serviço concluído ainda.</p>';
-      return;
-    }
-  }
-
-  const maxVal = Math.max(...linhas.map(l => l.val), 1);
-
-  detalheEl.innerHTML = `
-    <div class="ganhos-bars">
-      ${linhas.map(l => `
-        <div class="ganhos-bar-col ${l.today ? 'today' : ''} ${l.future ? 'future' : ''}">
-          <div class="ganhos-bar-label-val">${l.val > 0 ? 'R$&nbsp;' + l.val.toFixed(0) : ''}</div>
-          <div class="ganhos-bar-outer">
-            <div class="ganhos-bar-inner" style="height:${l.val > 0 ? Math.max((l.val / maxVal) * 100, 4) : 0}%"></div>
-          </div>
-          <div class="ganhos-bar-label">${l.label}</div>
-          <div class="ganhos-bar-qtd">${l.qtd > 0 ? l.qtd + '×' : ''}</div>
-        </div>`
-      ).join('')}
-    </div>`;
-}
-
-async function loadGanhos() {
-  if (!specialistData) return;
-  try {
-    const snap = await db.collection('appointments')
-      .where('specialistId', '==', specialistData.id)
-      .get();
-    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderGanhos(_specAllApts, _specPeriod);
-  } catch(e) {
-    const el = document.getElementById('ganhos-detalhe');
-    if (el) el.innerHTML = '<p style="color:var(--danger);font-size:13px">Erro ao carregar ganhos.</p>';
-    console.error(e);
-  }
-}
-
-// Carrega appointments UMA vez e alimenta ganhos + tabela (evita query dupla)
-async function loadAllSpecialistData() {
-  if (!specialistData) return;
-  try {
-    const snap = await db.collection('appointments')
-      .where('specialistId', '==', specialistData.id)
-      .get();
-    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderGanhos(_specAllApts, _specPeriod);
-    await renderAppointmentsTable(_specAllApts, 'todos');
-  } catch(e) {
-    console.error('Erro ao carregar dados do especialista:', e);
-  }
-}
-
-function renderProfile() {
-  const sp = specialistData;
-  const fotoEl = document.getElementById('prof-foto');
-  const nomeEl = document.getElementById('prof-nome');
-  const espEl  = document.getElementById('prof-esp');
-  const foneEl = document.getElementById('prof-fone');
-  const navNome = document.getElementById('nav-spec-nome');
-
-  if (fotoEl) fotoEl.src = sp.fotoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(sp.nome)}&background=1A1F2E&color=00D4FF&bold=true&size=128`;
-  if (nomeEl) nomeEl.textContent = sp.nome;
-  if (espEl)  espEl.textContent  = (sp.especialidades || []).join(' · ') || 'Especialista';
-  if (foneEl) foneEl.textContent = sp.fone || '—';
-  if (navNome) navNome.textContent = sp.nome?.split(' ')[0] || 'Especialista';
-}
-
-// ---- Alterar foto de perfil ----
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('foto-input')?.addEventListener('change', async function() {
-    if (!this.files[0] || !specialistData) return;
-    const btn = document.getElementById('btn-change-foto');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
-    try {
-      const url = await uploadToCloudinary(this.files[0], 'specialists');
-      await db.collection('specialists').doc(specialistData.id).update({ fotoUrl: url });
-      specialistData.fotoUrl = url;
-      renderProfile();
-      toast('Foto atualizada!', 'success');
-    } catch (e) {
-      toast('Erro ao atualizar foto: ' + e.message, 'error');
-    } finally {
-      if (btn) { btn.disabled = false; btn.innerHTML = '📷 Alterar Foto'; }
-    }
-  });
-
-  document.getElementById('btn-logout-spec')?.addEventListener('click', logoutUser);
-});
-
-// ---- Meus agendamentos ----
-async function loadMyAppointments(filter = 'todos') {
-  if (!specialistData) return;
-  try {
-    const snap = await db.collection('appointments')
-      .where('specialistId', '==', specialistData.id)
-      .get();
-    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderGanhos(_specAllApts, _specPeriod);
-    await renderAppointmentsTable(_specAllApts, filter);
-  } catch(e) {
-    console.error('Erro ao recarregar:', e);
-  }
-}
-
-async function renderAppointmentsTable(allApts, filter = 'todos') {
-  const tbody = document.getElementById('my-appointments-tbody');
-  if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px"><span class="spinner"></span></td></tr>';
-
-  try {
-    let list = [...allApts];
-
-    // Ordena data desc → hora desc em JS
-    list.sort((a, b) => {
-      const dc = (b.data || '').localeCompare(a.data || '');
-      if (dc !== 0) return dc;
-      return (b.hora || '').localeCompare(a.hora || '');
-    });
-
-    const today = new Date().toISOString().split('T')[0];
-
-    // Stats sempre com total real (antes do filtro de aba)
-    const totalPendentes = list.filter(a => a.status === 'pendente').length;
-    setVal('spec-total',    list.length);
-    setVal('spec-hoje',     list.filter(a => a.data === today).length);
-    setVal('spec-pendentes', totalPendentes);
-
-    // Badge no ícone do app (ponto/número vermelho)
-    atualizarBadge(totalPendentes);
-
-    // Aplica filtro de aba
-    const filtered = filter === 'todos' ? list : list.filter(a => a.status === filter);
-
-    if (!filtered.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-2);padding:24px">Nenhum agendamento</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = filtered.map(a => {
-      const acoes = [
-        a.status === 'pendente'
-          ? `<button class="btn btn-primary btn-sm" onclick="specUpdateStatus('${a.id}','confirmado','${a.clienteFone}')">✔ Confirmar</button>`
-          : '',
-        a.status === 'confirmado'
-          ? `<button class="btn btn-success btn-sm" onclick="specUpdateStatus('${a.id}','concluido','${a.clienteFone}')">✅ Concluir</button>`
-          : '',
-      ].filter(Boolean).join('');
-
-      return `
-      <tr>
-        <td>${formatDate(a.data)} <strong>${a.hora}</strong></td>
-        <td>${a.clienteNome}</td>
-        <td>${a.clienteFone}</td>
-        <td>${a.serviceNome}</td>
-        <td><span class="badge badge-${a.status}">${labelStatus(a.status)}</span></td>
-        <td><div style="display:flex;gap:6px">${acoes}</div></td>
-      </tr>`;
-    }).join('');
-  } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--danger);padding:16px">Erro ao carregar</td></tr>';
-    console.error(e);
-  }
-}
-
-async function specUpdateStatus(id, status, phone) {
-  // ⚡ Abre WhatsApp IMEDIATAMENTE (síncrono) antes de qualquer await
-  // Browsers mobile bloqueiam window.open() após operações assíncronas
-  if (phone && (status === 'confirmado' || status === 'concluido')) {
-    const phoneNum = phone.replace(/\D/g, '');
-    const phoneWA  = phoneNum.startsWith('55') ? phoneNum : '55' + phoneNum;
-    const msgs     = cachedMensagens || {};
-    const msg      = (status === 'confirmado')
-      ? (msgs.confirmado || MSG_DEFAULTS.confirmado)
-      : (msgs.concluido  || MSG_DEFAULTS.concluido);
-    window.open(`https://wa.me/${phoneWA}?text=${encodeURIComponent(msg)}`, '_blank');
-  }
-
-  // Atualiza status no Firestore (async, depois do WhatsApp)
-  try {
-    await db.collection('appointments').doc(id).update({
-      status,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    toast(status === 'confirmado' ? 'Agendamento confirmado! ✔' : 'Serviço concluído! ✅', 'success');
-    const activeFilter = document.querySelector('.filter-btn.active')?.getAttribute('data-filter') || 'todos';
-    await loadMyAppointments(activeFilter);
-  } catch(e) {
-    toast('Erro ao atualizar: ' + e.message, 'error');
-  }
-}
-
-// ---- Badge de notificação no ícone do app ----
-async function pedirPermissaoNotificacao() {
-  if (!('Notification' in window)) return;
-  if (Notification.permission === 'default') {
-    await Notification.requestPermission();
-  }
-}
-
-async function atualizarBadge(count) {
-  if (!('setAppBadge' in navigator)) return;
-  // Garante que a permissão foi concedida (necessária para o badge funcionar)
-  await pedirPermissaoNotificacao();
-  try {
-    if (count > 0) {
-      await navigator.setAppBadge(count);
-    } else {
-      await navigator.clearAppBadge();
-    }
-  } catch(e) {
-    console.warn('Badge não suportado:', e);
-  }
-}
-
-function setupNav() {
-  document.querySelectorAll('.sidebar-item[data-page]').forEach(item => {
-    item.addEventListener('click', () => showPage(item.getAttribute('data-page')));
-  });
-  document.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      loadMyAppointments(btn.getAttribute('data-filter'));
-    });
-  });
-  document.getElementById('menu-toggle')?.addEventListener('click', () => {
-    document.getElementById('sidebar').classList.add('open');
-    document.getElementById('sidebar-overlay').classList.add('visible');
-  });
-  document.getElementById('sidebar-overlay')?.addEventListener('click', () => {
-    document.getElementById('sidebar')?.classList.remove('open');
-    document.getElementById('sidebar-overlay')?.classList.remove('visible');
-  });
-}
-
-function showPage(name) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.getElementById(`page-${name}`)?.classList.add('active');
-  document.querySelectorAll('.sidebar-item').forEach(i =>
-    i.classList.toggle('active', i.getAttribute('data-page') === name));
-}
-
-function setVal(id, val) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = val;
-}
-function labelStatus(s) {
-  return { pendente:'Pendente', confirmado:'Confirmado', concluido:'Concluído', cancelado:'Cancelado' }[s] || s;
-}
-function formatDate(iso) {
-  if (!iso) return '—';
-  const [y,m,d] = iso.split('-');
-  return `${d}/${m}/${y}`;
-}
+<script>
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
