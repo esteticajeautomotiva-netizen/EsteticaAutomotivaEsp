@@ -43,10 +43,12 @@ function toast(msg, type = 'info') {
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     currentSpecialist = await checkSession('specialist');
+    pedirPermissaoNotificacao(); // solicita permissão logo na abertura
     await Promise.all([loadSpecialistProfile(), loadCachedMensagens()]);
     // Busca appointments UMA vez e alimenta ganhos + tabela
     await loadAllSpecialistData();
     setupNav();
+    setupStatCards();
   } catch (e) {
     console.error('Specialist init:', e);
   }
@@ -349,7 +351,10 @@ async function renderAppointmentsTable(allApts, filter = 'todos') {
     atualizarBadge(totalPendentes);
 
     // Aplica filtro de aba
-    const filtered = filter === 'todos' ? list : list.filter(a => a.status === filter);
+    const todayDate = new Date().toISOString().split('T')[0];
+    const filtered = filter === 'todos'   ? list
+                   : filter === 'hoje'    ? list.filter(a => a.data === todayDate)
+                   : list.filter(a => a.status === filter);
 
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-2);padding:24px">Nenhum agendamento</td></tr>';
@@ -410,12 +415,25 @@ async function specUpdateStatus(id, status, phone) {
 }
 
 // ---- Badge de notificação no ícone do app ----
-function atualizarBadge(count) {
+async function pedirPermissaoNotificacao() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
+}
+
+async function atualizarBadge(count) {
   if (!('setAppBadge' in navigator)) return;
-  if (count > 0) {
-    navigator.setAppBadge(count).catch(() => {});
-  } else {
-    navigator.clearAppBadge().catch(() => {});
+  // Garante que a permissão foi concedida (necessária para o badge funcionar)
+  await pedirPermissaoNotificacao();
+  try {
+    if (count > 0) {
+      await navigator.setAppBadge(count);
+    } else {
+      await navigator.clearAppBadge();
+    }
+  } catch(e) {
+    console.warn('Badge não suportado:', e);
   }
 }
 
@@ -445,6 +463,35 @@ function showPage(name) {
   document.getElementById(`page-${name}`)?.classList.add('active');
   document.querySelectorAll('.sidebar-item').forEach(i =>
     i.classList.toggle('active', i.getAttribute('data-page') === name));
+}
+
+// Navega para Meus Agendamentos já com filtro aplicado
+function goToAppointments(filter) {
+  showPage('agendamentos');
+  // Ativa o botão de filtro correto
+  document.querySelectorAll('#page-agendamentos .filter-btn').forEach(b => {
+    const isTarget = b.getAttribute('data-filter') === filter;
+    b.classList.toggle('active', isTarget);
+  });
+  loadMyAppointments(filter);
+}
+
+// Cards de stats clicáveis
+function setupStatCards() {
+  const cards = [
+    { id: 'spec-hoje',      filter: 'hoje'     },
+    { id: 'spec-pendentes', filter: 'pendente' },
+    { id: 'spec-total',     filter: 'todos'    },
+  ];
+  cards.forEach(({ id, filter }) => {
+    const el = document.getElementById(id)?.closest('.stat-card');
+    if (!el) return;
+    el.style.cursor = 'pointer';
+    el.style.transition = 'transform 0.15s, box-shadow 0.15s';
+    el.addEventListener('click', () => goToAppointments(filter));
+    el.addEventListener('mouseenter', () => el.style.transform = 'translateY(-2px)');
+    el.addEventListener('mouseleave', () => el.style.transform = '');
+  });
 }
 
 function setVal(id, val) {
