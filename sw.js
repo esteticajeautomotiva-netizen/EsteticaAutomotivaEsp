@@ -1,10 +1,18 @@
-const CACHE_NAME = 'je-esp-v3';
+const CACHE_NAME = 'je-esp-v4';
 const BASE = '/EsteticaAutomotivaEsp';
 const ASSETS = [
-  `${BASE}/index.html`, `${BASE}/login.html`, `${BASE}/specialist.html`, `${BASE}/manifest.json`,
-  `${BASE}/vars.css`, `${BASE}/admin.css`,
-  `${BASE}/firebase-config.js`, `${BASE}/cloudinary.js`, `${BASE}/auth.js`, `${BASE}/specialist.js`,
-  `${BASE}/icon-192.png`, `${BASE}/icon-512.png`
+  `${BASE}/index.html`,
+  `${BASE}/login.html`,
+  `${BASE}/specialist.html`,
+  `${BASE}/manifest.json`,
+  `${BASE}/vars.css`,
+  `${BASE}/admin.css`,
+  `${BASE}/firebase-config.js`,
+  `${BASE}/cloudinary.js`,
+  `${BASE}/auth.js`,
+  `${BASE}/specialist.js`,
+  `${BASE}/icon-192.png`,
+  `${BASE}/icon-512.png`
 ];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()).catch(() => self.skipWaiting()));
