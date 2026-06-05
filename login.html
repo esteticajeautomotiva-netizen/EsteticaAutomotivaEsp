@@ -49,11 +49,11 @@ body { display:flex; align-items:center; justify-content:center; min-height:100v
     <div class="form-stack">
       <div class="input-group">
         <label>E-mail</label>
-        <input type="email" id="login-email" class="input" placeholder="seu@email.com" autocomplete="email">
+        <input type="email" id="login-email" class="input" ontouchstart="this.focus()" placeholder="seu@email.com" autocomplete="email">
       </div>
       <div class="input-group">
         <label>Senha</label>
-        <input type="password" id="login-senha" class="input" placeholder="••••••••" autocomplete="current-password">
+        <input type="password" id="login-senha" class="input" ontouchstart="this.focus()" placeholder="••••••••" autocomplete="current-password">
       </div>
     </div>
     <div class="forgot">
@@ -137,6 +137,24 @@ document.getElementById('login-senha').addEventListener('keydown', e => {
 
 // PWA
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+
+<script>
+// Fix iOS PWA standalone — garante foco nos inputs ao tocar
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('input').forEach(function(el) {
+    el.addEventListener('touchstart', function(e) {
+      e.stopPropagation();
+      var self = this;
+      setTimeout(function() { self.focus(); }, 50);
+    }, { passive: true });
+    el.addEventListener('touchend', function(e) {
+      e.stopPropagation();
+      var self = this;
+      setTimeout(function() { self.focus(); }, 50);
+    }, { passive: true });
+  });
+});
 </script>
 </body>
 </html>
