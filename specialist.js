@@ -4,6 +4,31 @@
 
 let currentSpecialist = null;
 let specialistData    = null;
+let cachedMensagens   = null;
+let _specAllApts      = [];
+let _specPeriod       = 'semana';
+
+const MSG_DEFAULTS = {
+  confirmado: `Olá! A J&E ESTÉTICA agradece a preferência. ✅ Seu agendamento foi *confirmado*!\n\nCompareça com até *10 min de antecedência* para vistoria junto ao especialista.\nTolerância de atrasos de até 15 min.`,
+  concluido:  `Olá! A J&E ESTÉTICA agradece a preferência. 🎉 O serviço em seu veículo foi *concluído*!\n\nObrigado e volte sempre! 🚗✨`
+};
+
+function getEarningsDate(a) {
+  if (a.status === 'concluido' && a.updatedAt) {
+    try {
+      const d = a.updatedAt.toDate ? a.updatedAt.toDate() : new Date(a.updatedAt);
+      return d.toISOString().split('T')[0];
+    } catch(e) {}
+  }
+  return a.data;
+}
+
+async function loadCachedMensagens() {
+  try {
+    const doc = await db.collection('settings').doc('mensagens').get();
+    cachedMensagens = doc.exists ? doc.data() : {};
+  } catch(e) { cachedMensagens = {}; }
+}
 
 function toast(msg, type = 'info') {
   const icons = { success: '✅', error: '❌', info: 'ℹ️' };
@@ -26,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       Notification.requestPermission().catch(() => {});
     }
     await Promise.all([loadSpecialistProfile(), loadCachedMensagens()]);
-    await loadAllSpecialistData();
+    await loadMyAppointments();
     setupNav();
     setupStatCards();
   } catch (e) {
@@ -36,11 +61,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ---- Perfil ----
 async function loadSpecialistProfile() {
-  if (!currentSpecialist.specialistId) return;
-  const doc = await db.collection('specialists').doc(currentSpecialist.specialistId).get();
-  if (!doc.exists) return;
-  specialistData = { id: doc.id, ...doc.data() };
-  renderProfile();
+  const nomeEl = document.getElementById('prof-nome');
+  try {
+    if (!currentSpecialist.specialistId) {
+      if (nomeEl) nomeEl.textContent = 'Erro: perfil não vinculado. Fale com o ADM.';
+      return;
+    }
+    const doc = await db.collection('specialists').doc(currentSpecialist.specialistId).get();
+    if (!doc.exists) {
+      if (nomeEl) nomeEl.textContent = 'Erro: especialista não encontrado.';
+      return;
+    }
+    specialistData = { id: doc.id, ...doc.data() };
+    renderProfile();
+    if (window.OneSignalDeferred) {
+      window.OneSignalDeferred.push(async function(OneSignal) {
+        OneSignal.User.addTag('specialistId', specialistData.id);
+      });
+    }
+  } catch(e) {
+    console.error('[ESP] Erro ao carregar perfil:', e);
+    if (nomeEl) nomeEl.textContent = 'Erro: ' + e.message;
+  }
 }
 
 
@@ -49,8 +91,7 @@ async function loadSpecialistProfile() {
 // MEUS GANHOS
 // ============================================================
 
-let _specAllApts = [];   // cache de todos os agendamentos do especialista
-let _specPeriod  = 'semana';
+
 
 function changeGanhosPeriod(btn, period) {
   _specPeriod = period;
@@ -222,17 +263,6 @@ function renderGanhos(all, period) {
     </div>`;
 }
 
-async function loadAllSpecialistData() {
-  if (!specialistData) return;
-  try {
-    const snap = await db.collection('appointments')
-      .where('specialistId', '==', specialistData.id).get();
-    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderGanhos(_specAllApts, _specPeriod);
-    await renderAppointmentsTable(_specAllApts, 'todos');
-  } catch(e) { console.error('Erro:', e); }
-}
-
 async function loadGanhos() {
   if (!specialistData) return;
   try {
@@ -289,44 +319,30 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadMyAppointments(filter = 'todos') {
   const tbody = document.getElementById('my-appointments-tbody');
   if (!tbody || !specialistData) return;
-
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px"><span class="spinner"></span></td></tr>';
-
   try {
-    // Busca só por specialistId (sem orderBy = sem índice composto necessário)
     const snap = await db.collection('appointments')
-      .where('specialistId', '==', specialistData.id)
-      .get();
-
-    let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-    // Ordena data desc → hora desc em JS
-    list.sort((a, b) => {
+      .where('specialistId', '==', specialistData.id).get();
+    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _specAllApts.sort((a, b) => {
       const dc = (b.data || '').localeCompare(a.data || '');
-      if (dc !== 0) return dc;
-      return (b.hora || '').localeCompare(a.hora || '');
+      return dc !== 0 ? dc : (b.hora || '').localeCompare(a.hora || '');
     });
-
     const today = new Date().toISOString().split('T')[0];
-
-    // Stats sempre com total real (antes do filtro de aba)
-    const totalPendentes = list.filter(a => a.status === 'pendente').length;
-    setVal('spec-total',    list.length);
-    setVal('spec-hoje',     list.filter(a => a.data === today).length);
+    const todayDate = today;
+    const totalPendentes = _specAllApts.filter(a => a.status === 'pendente').length;
+    setVal('spec-total',    _specAllApts.length);
+    setVal('spec-hoje',     _specAllApts.filter(a => a.data === today).length);
     setVal('spec-pendentes', totalPendentes);
     atualizarBadge(totalPendentes);
-
-    // Aplica filtro de aba
-    const todayDate = new Date().toISOString().split('T')[0];
-    const filtered = filter === 'todos'   ? list
-                   : filter === 'hoje'    ? list.filter(a => a.data === todayDate)
-                   : list.filter(a => a.status === filter);
-
+    renderGanhos(_specAllApts, _specPeriod);
+    const filtered = filter === 'todos'  ? _specAllApts
+                   : filter === 'hoje'   ? _specAllApts.filter(a => a.data === todayDate)
+                   : _specAllApts.filter(a => a.status === filter);
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-2);padding:24px">Nenhum agendamento</td></tr>';
       return;
     }
-
     tbody.innerHTML = filtered.map(a => {
       const acoes = [
         a.status === 'pendente'
@@ -336,7 +352,6 @@ async function loadMyAppointments(filter = 'todos') {
           ? `<button class="btn btn-success btn-sm" onclick="specUpdateStatus('${a.id}','concluido','${a.clienteFone}')">✅ Concluir</button>`
           : '',
       ].filter(Boolean).join('');
-
       return `
       <tr>
         <td>${formatDate(a.data)} <strong>${a.hora}</strong></td>
@@ -354,12 +369,12 @@ async function loadMyAppointments(filter = 'todos') {
 }
 
 async function specUpdateStatus(id, status, phone) {
-  // ⚡ Abre WhatsApp IMEDIATAMENTE (antes de qualquer await)
+  // ⚡ WhatsApp ANTES de qualquer await (mobile bloqueia window.open após async)
   if (phone && (status === 'confirmado' || status === 'concluido')) {
     const phoneNum = phone.replace(/\D/g, '');
     const phoneWA  = phoneNum.startsWith('55') ? phoneNum : '55' + phoneNum;
     const msgs     = cachedMensagens || {};
-    const msg      = (status === 'confirmado')
+    const msg      = status === 'confirmado'
       ? (msgs.confirmado || MSG_DEFAULTS.confirmado)
       : (msgs.concluido  || MSG_DEFAULTS.concluido);
     window.open(`https://wa.me/${phoneWA}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -386,16 +401,12 @@ function goToAppointments(filter) {
 }
 
 function setupStatCards() {
-  const cards = [
-    { id: 'spec-hoje',      filter: 'hoje'     },
-    { id: 'spec-pendentes', filter: 'pendente' },
-    { id: 'spec-total',     filter: 'todos'    },
-  ];
-  cards.forEach(({ id, filter }) => {
+  [{ id:'spec-hoje', filter:'hoje' }, { id:'spec-pendentes', filter:'pendente' }, { id:'spec-total', filter:'todos' }]
+  .forEach(({ id, filter }) => {
     const el = document.getElementById(id)?.closest('.stat-card');
     if (!el) return;
     el.style.cursor = 'pointer';
-    el.style.transition = 'transform 0.15s, box-shadow 0.15s';
+    el.style.transition = 'transform 0.15s';
     el.addEventListener('click', () => goToAppointments(filter));
     el.addEventListener('mouseenter', () => el.style.transform = 'translateY(-2px)');
     el.addEventListener('mouseleave', () => el.style.transform = '');
