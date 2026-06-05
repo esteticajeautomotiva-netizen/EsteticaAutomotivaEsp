@@ -4,32 +4,6 @@
 
 let currentSpecialist = null;
 let specialistData    = null;
-let cachedMensagens   = null;  // mensagens pré-carregadas do Firestore
-
-const MSG_DEFAULTS = {
-  confirmado: `Olá! A J&E ESTÉTICA agradece a preferência. ✅ Seu agendamento foi *confirmado*!\n\nCompareça com até *10 min de antecedência* para vistoria junto ao especialista.\nTolerância de atrasos de até 15 min.`,
-  concluido:  `Olá! A J&E ESTÉTICA agradece a preferência. 🎉 O serviço em seu veículo foi *concluído*!\n\nObrigado e volte sempre! 🚗✨`
-};
-
-async function loadCachedMensagens() {
-  try {
-    const doc = await db.collection('settings').doc('mensagens').get();
-    cachedMensagens = doc.exists ? doc.data() : {};
-  } catch(e) {
-    cachedMensagens = {};
-  }
-}
-
-// Retorna a data de ganho: para concluídos usa a data de conclusão (updatedAt), não a data agendada
-function getEarningsDate(a) {
-  if (a.status === 'concluido' && a.updatedAt) {
-    try {
-      const d = a.updatedAt.toDate ? a.updatedAt.toDate() : new Date(a.updatedAt);
-      return d.toISOString().split('T')[0];
-    } catch(e) {}
-  }
-  return a.data;
-}
 
 function toast(msg, type = 'info') {
   const icons = { success: '✅', error: '❌', info: 'ℹ️' };
@@ -43,12 +17,15 @@ function toast(msg, type = 'info') {
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     currentSpecialist = await checkSession('specialist');
-    pedirPermissaoNotificacao(); // solicita permissão logo na abertura
-    await Promise.all([loadSpecialistProfile(), loadCachedMensagens()]);
-    // Busca appointments UMA vez e alimenta ganhos + tabela
-    await loadAllSpecialistData();
+    if (window.OneSignal) {
+      OneSignal.push(function() {
+        OneSignal.User.addTag('role', 'specialist');
+      });
+    }
+    await loadSpecialistProfile();
+    await loadGanhos();
+    await loadMyAppointments();
     setupNav();
-    setupStatCards();
   } catch (e) {
     console.error('Specialist init:', e);
   }
@@ -122,7 +99,7 @@ function renderGanhos(all, period) {
   const todosConc = all.filter(a => a.status === 'concluido');
 
   // Filtra pelo período selecionado (para o hero)
-  const concluidos = todosConc.filter(a => { const d = getEarningsDate(a); return d >= ini && d <= fim; });
+  const concluidos = todosConc.filter(a => a.data >= ini && a.data <= fim);
 
   const totalVal = concluidos.reduce((s, a) => s + (Number(a.preco) || 0), 0);
   valorEl.textContent = 'R$ ' + totalVal.toFixed(2);
@@ -143,7 +120,7 @@ function renderGanhos(all, period) {
     linhas = Array.from({ length: 7 }, (_, i) => {
       const d   = new Date(semIni); d.setDate(semIni.getDate() + i);
       const iso = d.toISOString().split('T')[0];
-      const apts = todosConc.filter(a => getEarningsDate(a) === iso);
+      const apts = todosConc.filter(a => a.data === iso);  // usa todosConc (sem filtro de período)
       const val  = apts.reduce((s, a) => s + (Number(a.preco) || 0), 0);
       return { label: dias[d.getDay()] + ' ' + d.getDate(), val, qtd: apts.length, today: iso === todayIso };
     });
@@ -159,7 +136,7 @@ function renderGanhos(all, period) {
 
     // Usa concluidos filtrados pelo mês
     concluidos.forEach(a => {
-      const day = parseInt(getEarningsDate(a).slice(8, 10));
+      const day = parseInt(a.data.slice(8, 10));
       const wk  = Math.ceil(day / 7);
       const key = `Sem ${wk}`;
       if (!weeks[key]) weeks[key] = { val: 0, qtd: 0 };
@@ -186,9 +163,9 @@ function renderGanhos(all, period) {
     // Usa todos os concluídos do ano atual
     const anoAtual = String(new Date().getFullYear());
     todosConc
-      .filter(a => getEarningsDate(a).startsWith(anoAtual))
+      .filter(a => a.data.startsWith(anoAtual))
       .forEach(a => {
-        const m = getEarningsDate(a).slice(5, 7);
+        const m = a.data.slice(5, 7);
         if (!byMes[m]) byMes[m] = { val: 0, qtd: 0 };
         byMes[m].val += Number(a.preco) || 0;
         byMes[m].qtd++;
@@ -208,7 +185,7 @@ function renderGanhos(all, period) {
     // Total: agrupa por ano
     const byAno = {};
     todosConc.forEach(a => {
-      const d = getEarningsDate(a); const ano = d ? d.slice(0, 4) : 'N/A';
+      const ano = a.data ? a.data.slice(0, 4) : 'N/A';
       if (!byAno[ano]) byAno[ano] = { val: 0, qtd: 0 };
       byAno[ano].val += Number(a.preco) || 0;
       byAno[ano].qtd++;
@@ -257,21 +234,6 @@ async function loadGanhos() {
   }
 }
 
-// Carrega appointments UMA vez e alimenta ganhos + tabela (evita query dupla)
-async function loadAllSpecialistData() {
-  if (!specialistData) return;
-  try {
-    const snap = await db.collection('appointments')
-      .where('specialistId', '==', specialistData.id)
-      .get();
-    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderGanhos(_specAllApts, _specPeriod);
-    await renderAppointmentsTable(_specAllApts, 'todos');
-  } catch(e) {
-    console.error('Erro ao carregar dados do especialista:', e);
-  }
-}
-
 function renderProfile() {
   const sp = specialistData;
   const fotoEl = document.getElementById('prof-foto');
@@ -311,26 +273,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ---- Meus agendamentos ----
 async function loadMyAppointments(filter = 'todos') {
-  if (!specialistData) return;
-  try {
-    const snap = await db.collection('appointments')
-      .where('specialistId', '==', specialistData.id)
-      .get();
-    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderGanhos(_specAllApts, _specPeriod);
-    await renderAppointmentsTable(_specAllApts, filter);
-  } catch(e) {
-    console.error('Erro ao recarregar:', e);
-  }
-}
-
-async function renderAppointmentsTable(allApts, filter = 'todos') {
   const tbody = document.getElementById('my-appointments-tbody');
-  if (!tbody) return;
+  if (!tbody || !specialistData) return;
+
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px"><span class="spinner"></span></td></tr>';
 
   try {
-    let list = [...allApts];
+    // Busca só por specialistId (sem orderBy = sem índice composto necessário)
+    const snap = await db.collection('appointments')
+      .where('specialistId', '==', specialistData.id)
+      .get();
+
+    let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
     // Ordena data desc → hora desc em JS
     list.sort((a, b) => {
@@ -342,19 +296,12 @@ async function renderAppointmentsTable(allApts, filter = 'todos') {
     const today = new Date().toISOString().split('T')[0];
 
     // Stats sempre com total real (antes do filtro de aba)
-    const totalPendentes = list.filter(a => a.status === 'pendente').length;
     setVal('spec-total',    list.length);
     setVal('spec-hoje',     list.filter(a => a.data === today).length);
-    setVal('spec-pendentes', totalPendentes);
-
-    // Badge no ícone do app (ponto/número vermelho)
-    atualizarBadge(totalPendentes);
+    setVal('spec-pendentes',list.filter(a => a.status === 'pendente').length);
 
     // Aplica filtro de aba
-    const todayDate = new Date().toISOString().split('T')[0];
-    const filtered = filter === 'todos'   ? list
-                   : filter === 'hoje'    ? list.filter(a => a.data === todayDate)
-                   : list.filter(a => a.status === filter);
+    const filtered = filter === 'todos' ? list : list.filter(a => a.status === filter);
 
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-2);padding:24px">Nenhum agendamento</td></tr>';
@@ -364,10 +311,10 @@ async function renderAppointmentsTable(allApts, filter = 'todos') {
     tbody.innerHTML = filtered.map(a => {
       const acoes = [
         a.status === 'pendente'
-          ? `<button class="btn btn-primary btn-sm" onclick="specUpdateStatus('${a.id}','confirmado','${a.clienteFone}')">✔ Confirmar</button>`
+          ? `<button class="btn btn-primary btn-sm" onclick="specUpdateStatus('${a.id}','confirmado')">✔ Confirmar</button>`
           : '',
         a.status === 'confirmado'
-          ? `<button class="btn btn-success btn-sm" onclick="specUpdateStatus('${a.id}','concluido','${a.clienteFone}')">✅ Concluir</button>`
+          ? `<button class="btn btn-success btn-sm" onclick="specUpdateStatus('${a.id}','concluido')">✅ Concluir</button>`
           : '',
       ].filter(Boolean).join('');
 
@@ -387,20 +334,7 @@ async function renderAppointmentsTable(allApts, filter = 'todos') {
   }
 }
 
-async function specUpdateStatus(id, status, phone) {
-  // ⚡ Abre WhatsApp IMEDIATAMENTE (síncrono) antes de qualquer await
-  // Browsers mobile bloqueiam window.open() após operações assíncronas
-  if (phone && (status === 'confirmado' || status === 'concluido')) {
-    const phoneNum = phone.replace(/\D/g, '');
-    const phoneWA  = phoneNum.startsWith('55') ? phoneNum : '55' + phoneNum;
-    const msgs     = cachedMensagens || {};
-    const msg      = (status === 'confirmado')
-      ? (msgs.confirmado || MSG_DEFAULTS.confirmado)
-      : (msgs.concluido  || MSG_DEFAULTS.concluido);
-    window.open(`https://wa.me/${phoneWA}?text=${encodeURIComponent(msg)}`, '_blank');
-  }
-
-  // Atualiza status no Firestore (async, depois do WhatsApp)
+async function specUpdateStatus(id, status) {
   try {
     await db.collection('appointments').doc(id).update({
       status,
@@ -411,29 +345,6 @@ async function specUpdateStatus(id, status, phone) {
     await loadMyAppointments(activeFilter);
   } catch(e) {
     toast('Erro ao atualizar: ' + e.message, 'error');
-  }
-}
-
-// ---- Badge de notificação no ícone do app ----
-async function pedirPermissaoNotificacao() {
-  if (!('Notification' in window)) return;
-  if (Notification.permission === 'default') {
-    await Notification.requestPermission();
-  }
-}
-
-async function atualizarBadge(count) {
-  if (!('setAppBadge' in navigator)) return;
-  // Garante que a permissão foi concedida (necessária para o badge funcionar)
-  await pedirPermissaoNotificacao();
-  try {
-    if (count > 0) {
-      await navigator.setAppBadge(count);
-    } else {
-      await navigator.clearAppBadge();
-    }
-  } catch(e) {
-    console.warn('Badge não suportado:', e);
   }
 }
 
@@ -463,35 +374,6 @@ function showPage(name) {
   document.getElementById(`page-${name}`)?.classList.add('active');
   document.querySelectorAll('.sidebar-item').forEach(i =>
     i.classList.toggle('active', i.getAttribute('data-page') === name));
-}
-
-// Navega para Meus Agendamentos já com filtro aplicado
-function goToAppointments(filter) {
-  showPage('agendamentos');
-  // Ativa o botão de filtro correto
-  document.querySelectorAll('#page-agendamentos .filter-btn').forEach(b => {
-    const isTarget = b.getAttribute('data-filter') === filter;
-    b.classList.toggle('active', isTarget);
-  });
-  loadMyAppointments(filter);
-}
-
-// Cards de stats clicáveis
-function setupStatCards() {
-  const cards = [
-    { id: 'spec-hoje',      filter: 'hoje'     },
-    { id: 'spec-pendentes', filter: 'pendente' },
-    { id: 'spec-total',     filter: 'todos'    },
-  ];
-  cards.forEach(({ id, filter }) => {
-    const el = document.getElementById(id)?.closest('.stat-card');
-    if (!el) return;
-    el.style.cursor = 'pointer';
-    el.style.transition = 'transform 0.15s, box-shadow 0.15s';
-    el.addEventListener('click', () => goToAppointments(filter));
-    el.addEventListener('mouseenter', () => el.style.transform = 'translateY(-2px)');
-    el.addEventListener('mouseleave', () => el.style.transform = '');
-  });
 }
 
 function setVal(id, val) {
