@@ -1,4 +1,7 @@
-const CACHE_NAME = 'je-esp-v4';
+// Importa SDK do OneSignal (push notifications)
+importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
+
+const CACHE_NAME = 'je-esp-v5';
 const BASE = '/EsteticaAutomotivaEsp';
 const ASSETS = [
   `${BASE}/index.html`,
@@ -23,7 +26,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = e.request.url;
   if (url.includes('firestore.googleapis.com') || url.includes('identitytoolkit') ||
-      url.includes('cloudinary.com') || url.includes('googleapis.com') || url.includes('gstatic.com')) return;
+      url.includes('cloudinary.com') || url.includes('googleapis.com') || url.includes('gstatic.com') ||
+      url.includes('onesignal.com')) return;
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
