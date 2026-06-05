@@ -17,15 +17,18 @@ function toast(msg, type = 'info') {
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     currentSpecialist = await checkSession('specialist');
-    if (window.OneSignal) {
-      OneSignal.push(function() {
+    if (window.OneSignalDeferred) {
+      window.OneSignalDeferred.push(async function(OneSignal) {
         OneSignal.User.addTag('role', 'specialist');
       });
     }
-    await loadSpecialistProfile();
-    await loadGanhos();
-    await loadMyAppointments();
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+    await Promise.all([loadSpecialistProfile(), loadCachedMensagens()]);
+    await loadAllSpecialistData();
     setupNav();
+    setupStatCards();
   } catch (e) {
     console.error('Specialist init:', e);
   }
@@ -219,6 +222,17 @@ function renderGanhos(all, period) {
     </div>`;
 }
 
+async function loadAllSpecialistData() {
+  if (!specialistData) return;
+  try {
+    const snap = await db.collection('appointments')
+      .where('specialistId', '==', specialistData.id).get();
+    _specAllApts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderGanhos(_specAllApts, _specPeriod);
+    await renderAppointmentsTable(_specAllApts, 'todos');
+  } catch(e) { console.error('Erro:', e); }
+}
+
 async function loadGanhos() {
   if (!specialistData) return;
   try {
@@ -296,12 +310,17 @@ async function loadMyAppointments(filter = 'todos') {
     const today = new Date().toISOString().split('T')[0];
 
     // Stats sempre com total real (antes do filtro de aba)
+    const totalPendentes = list.filter(a => a.status === 'pendente').length;
     setVal('spec-total',    list.length);
     setVal('spec-hoje',     list.filter(a => a.data === today).length);
-    setVal('spec-pendentes',list.filter(a => a.status === 'pendente').length);
+    setVal('spec-pendentes', totalPendentes);
+    atualizarBadge(totalPendentes);
 
     // Aplica filtro de aba
-    const filtered = filter === 'todos' ? list : list.filter(a => a.status === filter);
+    const todayDate = new Date().toISOString().split('T')[0];
+    const filtered = filter === 'todos'   ? list
+                   : filter === 'hoje'    ? list.filter(a => a.data === todayDate)
+                   : list.filter(a => a.status === filter);
 
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-2);padding:24px">Nenhum agendamento</td></tr>';
@@ -311,10 +330,10 @@ async function loadMyAppointments(filter = 'todos') {
     tbody.innerHTML = filtered.map(a => {
       const acoes = [
         a.status === 'pendente'
-          ? `<button class="btn btn-primary btn-sm" onclick="specUpdateStatus('${a.id}','confirmado')">✔ Confirmar</button>`
+          ? `<button class="btn btn-primary btn-sm" onclick="specUpdateStatus('${a.id}','confirmado','${a.clienteFone}')">✔ Confirmar</button>`
           : '',
         a.status === 'confirmado'
-          ? `<button class="btn btn-success btn-sm" onclick="specUpdateStatus('${a.id}','concluido')">✅ Concluir</button>`
+          ? `<button class="btn btn-success btn-sm" onclick="specUpdateStatus('${a.id}','concluido','${a.clienteFone}')">✅ Concluir</button>`
           : '',
       ].filter(Boolean).join('');
 
@@ -334,27 +353,68 @@ async function loadMyAppointments(filter = 'todos') {
   }
 }
 
-async function specUpdateStatus(id, status) {
+async function specUpdateStatus(id, status, phone) {
+  // ⚡ Abre WhatsApp IMEDIATAMENTE (antes de qualquer await)
+  if (phone && (status === 'confirmado' || status === 'concluido')) {
+    const phoneNum = phone.replace(/\D/g, '');
+    const phoneWA  = phoneNum.startsWith('55') ? phoneNum : '55' + phoneNum;
+    const msgs     = cachedMensagens || {};
+    const msg      = (status === 'confirmado')
+      ? (msgs.confirmado || MSG_DEFAULTS.confirmado)
+      : (msgs.concluido  || MSG_DEFAULTS.concluido);
+    window.open(`https://wa.me/${phoneWA}?text=${encodeURIComponent(msg)}`, '_blank');
+  }
   try {
     await db.collection('appointments').doc(id).update({
       status,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     toast(status === 'confirmado' ? 'Agendamento confirmado! ✔' : 'Serviço concluído! ✅', 'success');
-    const activeFilter = document.querySelector('.filter-btn.active')?.getAttribute('data-filter') || 'todos';
+    const activeFilter = document.querySelector('#page-agendamentos .filter-btn.active')?.getAttribute('data-filter') || 'todos';
     await loadMyAppointments(activeFilter);
   } catch(e) {
     toast('Erro ao atualizar: ' + e.message, 'error');
   }
 }
 
+function goToAppointments(filter) {
+  showPage('agendamentos');
+  document.querySelectorAll('#page-agendamentos .filter-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-filter') === filter);
+  });
+  loadMyAppointments(filter);
+}
+
+function setupStatCards() {
+  const cards = [
+    { id: 'spec-hoje',      filter: 'hoje'     },
+    { id: 'spec-pendentes', filter: 'pendente' },
+    { id: 'spec-total',     filter: 'todos'    },
+  ];
+  cards.forEach(({ id, filter }) => {
+    const el = document.getElementById(id)?.closest('.stat-card');
+    if (!el) return;
+    el.style.cursor = 'pointer';
+    el.style.transition = 'transform 0.15s, box-shadow 0.15s';
+    el.addEventListener('click', () => goToAppointments(filter));
+    el.addEventListener('mouseenter', () => el.style.transform = 'translateY(-2px)');
+    el.addEventListener('mouseleave', () => el.style.transform = '');
+  });
+}
+
+function atualizarBadge(count) {
+  if (!('setAppBadge' in navigator)) return;
+  if (count > 0) navigator.setAppBadge(count).catch(() => {});
+  else navigator.clearAppBadge().catch(() => {});
+}
+
 function setupNav() {
   document.querySelectorAll('.sidebar-item[data-page]').forEach(item => {
     item.addEventListener('click', () => showPage(item.getAttribute('data-page')));
   });
-  document.querySelectorAll('.filter-btn').forEach(btn => {
+  document.querySelectorAll('#page-agendamentos .filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('#page-agendamentos .filter-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       loadMyAppointments(btn.getAttribute('data-filter'));
     });
