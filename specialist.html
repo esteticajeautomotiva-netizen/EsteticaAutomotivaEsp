@@ -15,9 +15,11 @@
   OneSignalDeferred.push(async function(OneSignal) {
     await OneSignal.init({
       appId: "990ce880-9691-43a6-a6c9-39f3a702da70",
-      serviceWorkerPath: "sw.js",
-      serviceWorkerParam: { scope: "/EsteticaAutomotivaEsp/" }
+      serviceWorkerPath: "OneSignalSDKWorker.js",
+      serviceWorkerParam: { scope: "/EsteticaAutomotivaEsp/" },
+      allowLocalhostAsSecureOrigin: false
     });
+    await OneSignal.Notifications.requestPermission();
   });
 </script>
 </head>
