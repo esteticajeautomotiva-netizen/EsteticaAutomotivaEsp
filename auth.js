@@ -37,7 +37,6 @@ function checkSession(requiredRole) {
       const userData = { uid: user.uid, email: user.email, ...userDoc.data() };
 
       if (requiredRole && userData.role !== requiredRole) {
-        // Papel incorreto para este app — vai para login
         await auth.signOut();
         window.location.href = "login.html";
         return reject("Papel incorreto");
@@ -49,15 +48,19 @@ function checkSession(requiredRole) {
 
 // Criar usuário especialista pelo admin (sem mudar sessão do admin)
 async function createSpecialistUser(email, password, specialistData) {
+  // Usa uma instância secundária para não deslogar o admin
   const secondaryApp = firebase.initializeApp(firebaseConfig, "secondary");
   try {
     const cred = await secondaryApp.auth().createUserWithEmailAndPassword(email, password);
     const uid = cred.user.uid;
+
+    // Criar doc do usuário
     await db.collection("users").doc(uid).set({
       role: "specialist",
       specialistId: specialistData.id,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
+
     await secondaryApp.auth().signOut();
     return uid;
   } finally {
