@@ -1,4 +1,4 @@
-const CACHE_NAME = 'je-esp-v6';
+const CACHE_NAME = 'je-esp-v7';
 const BASE = '/EsteticaAutomotivaEsp';
 const ASSETS = [
   `${BASE}/index.html`, `${BASE}/login.html`, `${BASE}/specialist.html`,
