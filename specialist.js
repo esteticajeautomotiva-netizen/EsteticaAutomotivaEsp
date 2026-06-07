@@ -414,9 +414,13 @@ function setupStatCards() {
 }
 
 function atualizarBadge(count) {
-  if (!('setAppBadge' in navigator)) return;
-  if (count > 0) navigator.setAppBadge(count).catch(() => {});
-  else navigator.clearAppBadge().catch(() => {});
+  if ('setAppBadge' in navigator) {
+    if (count > 0) navigator.setAppBadge(count).catch(() => {});
+    else navigator.clearAppBadge().catch(() => {});
+  }
+  // Atualizar título da aba como fallback
+  if (count > 0) document.title = `(${count}) J&E Estética — Especialista`;
+  else document.title = 'J&E Estética Automotiva — Especialista';
 }
 
 function setupNav() {
@@ -492,8 +496,10 @@ function setupNovosAgendamentosListener(specialistId) {
           const apt = change.doc.data();
           tocarSomAlerta();
           toast(`📅 Novo agendamento! ${apt.clienteNome} — ${apt.serviceNome} ${apt.data} às ${apt.hora}`, 'info');
-          atualizarBadge();
-          loadMyAppointments();
+          loadMyAppointments().then(() => {
+            const pendentes = (_specAllApts || []).filter(a => a.status === 'pendente').length;
+            atualizarBadge(pendentes);
+          });
           setupStatCards();
         }
       });
