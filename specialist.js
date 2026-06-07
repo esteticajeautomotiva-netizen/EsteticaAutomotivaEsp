@@ -458,4 +458,46 @@ function formatDate(iso) {
   if (!iso) return '—';
   const [y,m,d] = iso.split('-');
   return `${d}/${m}/${y}`;
+
+// ============================================================
+// NOTIFICAÇÃO EM TEMPO REAL — Novos agendamentos via Firestore
+// ============================================================
+function tocarSomAlerta() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 150, 300].forEach(delay => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + delay/1000);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay/1000 + 0.3);
+      osc.start(ctx.currentTime + delay/1000);
+      osc.stop(ctx.currentTime + delay/1000 + 0.3);
+    });
+  } catch(e) {}
+}
+
+function setupNovosAgendamentosListener(specialistId) {
+  let primeiraVez = true;
+  db.collection('appointments')
+    .where('specialistId', '==', specialistId)
+    .orderBy('createdAt', 'desc')
+    .onSnapshot(snapshot => {
+      if (primeiraVez) { primeiraVez = false; return; }
+      snapshot.docChanges().forEach(change => {
+        if (change.type === 'added') {
+          const apt = change.doc.data();
+          tocarSomAlerta();
+          toast(`📅 Novo agendamento! ${apt.clienteNome} — ${apt.serviceNome} ${apt.data} às ${apt.hora}`, 'info');
+          atualizarBadge();
+          loadMyAppointments();
+          setupStatCards();
+        }
+      });
+    });
+}
+
 }
