@@ -74,6 +74,7 @@ async function loadSpecialistProfile() {
     }
     specialistData = { id: doc.id, ...doc.data() };
     renderProfile();
+    setupNovosAgendamentosListener(specialistData.id);
     if (window.OneSignalDeferred) {
       window.OneSignalDeferred.push(async function(OneSignal) {
         OneSignal.User.addTag('specialistId', specialistData.id);
@@ -462,6 +463,7 @@ function formatDate(iso) {
   if (!iso) return '—';
   const [y,m,d] = iso.split('-');
   return `${d}/${m}/${y}`;
+}
 
 // ============================================================
 // NOTIFICAÇÃO EM TEMPO REAL — Novos agendamentos via Firestore
@@ -486,11 +488,12 @@ function tocarSomAlerta() {
 
 function setupNovosAgendamentosListener(specialistId) {
   let primeiraVez = true;
+
+  // Listener 1: agendamentos com este especialista definido
   db.collection('appointments')
     .where('specialistId', '==', specialistId)
-    .orderBy('createdAt', 'desc')
     .onSnapshot(snapshot => {
-      if (primeiraVez) { primeiraVez = false; return; }
+      if (primeiraVez) return; // controlado pelo listener 2
       snapshot.docChanges().forEach(change => {
         if (change.type === 'added') {
           const apt = change.doc.data();
@@ -504,6 +507,23 @@ function setupNovosAgendamentosListener(specialistId) {
         }
       });
     });
-}
 
+  // Listener 2: agendamentos sem especialista definido (cliente escolheu "Qualquer")
+  db.collection('appointments')
+    .where('specialistId', '==', null)
+    .onSnapshot(snapshot => {
+      if (primeiraVez) { primeiraVez = false; return; }
+      snapshot.docChanges().forEach(change => {
+        if (change.type === 'added') {
+          const apt = change.doc.data();
+          tocarSomAlerta();
+          toast(`📅 Novo agendamento (sem especialista)! ${apt.clienteNome} — ${apt.serviceNome} ${apt.data} às ${apt.hora}`, 'warning');
+          loadMyAppointments().then(() => {
+            const pendentes = (_specAllApts || []).filter(a => a.status === 'pendente').length;
+            atualizarBadge(pendentes);
+          });
+          setupStatCards();
+        }
+      });
+    });
 }
