@@ -9,7 +9,20 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="vars.css">
 <link rel="stylesheet" href="admin.css">
-<!-- Notificações via Firestore onSnapshot -->
+<!-- OneSignal SDK -->
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+<script>
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  OneSignalDeferred.push(async function(OneSignal) {
+    await OneSignal.init({
+      appId: "990ce880-9691-43a6-a6c9-39f3a702da70",
+      serviceWorkerParam: { scope: "/EsteticaAutomotivaEsp/" },
+      serviceWorkerPath: "OneSignalSDKWorker.js",
+      notifyButton: { enable: false },
+      allowLocalhostAsSecureOrigin: true
+    });
+  });
+</script>
 </head>
 <body>
 <div id="toast-container"></div>
@@ -194,6 +207,11 @@
 <script src="auth.js"></script>
 <script src="specialist.js"></script>
 
-<!-- Service Worker gerenciado pelo OneSignal -->
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('OneSignalSDKWorker.js', { scope: '/EsteticaAutomotivaEsp/' })
+    .catch(() => navigator.serviceWorker.register('sw.js'));
+}
+</script>
 </body>
 </html>
