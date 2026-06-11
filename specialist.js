@@ -42,11 +42,6 @@ function toast(msg, type = 'info') {
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     currentSpecialist = await checkSession('specialist');
-    if (window.OneSignalDeferred) {
-      window.OneSignalDeferred.push(async function(OneSignal) {
-        OneSignal.User.addTag('role', 'specialist');
-      });
-    }
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().catch(() => {});
     }
@@ -75,10 +70,23 @@ async function loadSpecialistProfile() {
     specialistData = { id: doc.id, ...doc.data() };
     renderProfile();
     setupNovosAgendamentosListener(specialistData.id);
+
+    // Garante que as tags são gravadas DEPOIS do specialistData estar carregado
+    const _specId = specialistData.id;
     if (window.OneSignalDeferred) {
       window.OneSignalDeferred.push(async function(OneSignal) {
-        OneSignal.User.addTag('specialistId', specialistData.id);
+        await OneSignal.User.addTag('role', 'specialist');
+        await OneSignal.User.addTag('specialistId', _specId);
+        console.log('[OneSignal] Tags gravadas — specialistId:', _specId);
       });
+    } else {
+      // Fallback: tenta gravar via API direta se OneSignalDeferred não estiver disponível
+      setTimeout(() => {
+        if (window.OneSignal) {
+          OneSignal.User.addTag('role', 'specialist');
+          OneSignal.User.addTag('specialistId', _specId);
+        }
+      }, 3000);
     }
   } catch(e) {
     console.error('[ESP] Erro ao carregar perfil:', e);
